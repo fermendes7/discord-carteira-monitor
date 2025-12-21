@@ -10,6 +10,7 @@ SERVER_ID = os.getenv("SERVER_ID", "971218268574584852")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "1435710395909410878")
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "http://browserless:3000")
+BROWSERLESS_TOKEN = os.getenv("BROWSERLESS_TOKEN", "")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 
 class DiscordStageMonitor:
@@ -23,15 +24,18 @@ class DiscordStageMonitor:
         
         test_urls = [
             BROWSERLESS_URL,
-            BROWSERLESS_URL + "/json/version",
-            "http://browserless:3000",
-            "http://browserless:3000/json/version"
+            BROWSERLESS_URL + "/json/version"
         ]
+        
+        headers = {}
+        if BROWSERLESS_TOKEN:
+            headers["Authorization"] = "Bearer " + BROWSERLESS_TOKEN
+            print("Token Browserless: " + BROWSERLESS_TOKEN[:20] + "...")
         
         for url in test_urls:
             try:
                 print("Testando: " + url)
-                response = requests.get(url, timeout=5)
+                response = requests.get(url, headers=headers, timeout=5)
                 print("  Status: " + str(response.status_code) + " - OK!")
                 return True
             except Exception as e:
@@ -92,6 +96,10 @@ class DiscordStageMonitor:
             
             print("Enviando requisicao para Browserless...")
             endpoint = BROWSERLESS_URL + "/function"
+            
+            if BROWSERLESS_TOKEN:
+                endpoint = endpoint + "?token=" + BROWSERLESS_TOKEN
+            
             print("Endpoint: " + endpoint)
             
             response = requests.post(
