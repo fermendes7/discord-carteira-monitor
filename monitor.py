@@ -19,29 +19,36 @@ class DiscordStageMonitor:
         self.last_balance = None
         
     def test_browserless_connection(self):
-        """Testa conexao com Browserless"""
+        """Testa conexao com Browserless em diferentes formatos"""
         print("\n=== TESTE DE CONEXAO BROWSERLESS ===")
         
-        test_urls = [
-            BROWSERLESS_URL,
-            BROWSERLESS_URL + "/json/version"
-        ]
-        
-        headers = {}
         if BROWSERLESS_TOKEN:
-            headers["Authorization"] = "Bearer " + BROWSERLESS_TOKEN
             print("Token Browserless: " + BROWSERLESS_TOKEN[:20] + "...")
         
-        for url in test_urls:
-            try:
-                print("Testando: " + url)
-                response = requests.get(url, headers=headers, timeout=5)
-                print("  Status: " + str(response.status_code) + " - OK!")
-                return True
-            except Exception as e:
-                print("  Erro: " + str(e))
+        # Testa diferentes formatos de autenticacao
+        test_configs = [
+            {"url": BROWSERLESS_URL, "params": {"token": BROWSERLESS_TOKEN}},
+            {"url": BROWSERLESS_URL + "?token=" + BROWSERLESS_TOKEN, "params": {}},
+            {"url": BROWSERLESS_URL, "headers": {"Authorization": "Bearer " + BROWSERLESS_TOKEN}},
+            {"url": BROWSERLESS_URL, "headers": {"X-API-KEY": BROWSERLESS_TOKEN}},
+        ]
         
-        print("FALHA: Nenhuma URL funcionou!")
+        for i, config in enumerate(test_configs):
+            try:
+                print("\nTentativa {}: {}".format(i+1, config["url"][:50]))
+                response = requests.get(
+                    config["url"],
+                    params=config.get("params", {}),
+                    headers=config.get("headers", {}),
+                    timeout=5
+                )
+                print("  Status: {} - OK!".format(response.status_code))
+                if response.status_code in [200, 404]:
+                    return True
+            except Exception as e:
+                print("  Erro: {}".format(str(e)))
+        
+        print("FALHA: Nenhuma configuracao funcionou!")
         return False
         
     def get_browser_script(self):
@@ -61,7 +68,7 @@ class DiscordStageMonitor:
                 return None
             
             print("URL Browserless: " + BROWSERLESS_URL)
-            print("Discord Token: " + DISCORD_TOKEN[:20] + "..." if DISCORD_TOKEN else "NAO CONFIGURADO")
+            print("Discord Token: " + (DISCORD_TOKEN[:20] + "..." if DISCORD_TOKEN else "NAO CONFIGURADO"))
             print("Canal URL: " + params["url"])
             
             script_parts = []
@@ -95,12 +102,14 @@ class DiscordStageMonitor:
             browser_script = "\n".join(script_parts)
             
             print("Enviando requisicao para Browserless...")
-            endpoint = BROWSERLESS_URL + "/function"
             
+            # Tenta com token na query string
             if BROWSERLESS_TOKEN:
-                endpoint = endpoint + "?token=" + BROWSERLESS_TOKEN
+                endpoint = BROWSERLESS_URL + "/function?token=" + BROWSERLESS_TOKEN
+            else:
+                endpoint = BROWSERLESS_URL + "/function"
             
-            print("Endpoint: " + endpoint)
+            print("Endpoint: " + endpoint[:80] + "...")
             
             response = requests.post(
                 endpoint,
@@ -109,6 +118,18 @@ class DiscordStageMonitor:
             )
             
             print("Status da resposta: " + str(response.status_code))
+            
+            # Se der 401, tenta remover o token (sem autenticacao)
+            if response.status_code == 401 and BROWSERLESS_TOKEN:
+                print("401 com token - Tentando SEM autenticacao...")
+                endpoint_no_auth = BROWSERLESS_URL + "/function"
+                response = requests.post(
+                    endpoint_no_auth,
+                    json={"code": browser_script},
+                    timeout=60
+                )
+                print("Status sem auth: " + str(response.status_code))
+            
             response.raise_for_status()
             
             result = response.json()
@@ -121,6 +142,10 @@ class DiscordStageMonitor:
             return None
         except requests.exceptions.Timeout:
             print("ERRO: Timeout ao conectar no Browserless")
+            return None
+        except requests.exceptions.HTTPError as e:
+            print("ERRO HTTP: " + str(e))
+            print("  Resposta: " + str(e.response.text[:200]) if hasattr(e, 'response') else "")
             return None
         except Exception as e:
             print("Erro ao tirar screenshot: " + str(e))
@@ -209,15 +234,14 @@ class DiscordStageMonitor:
         separator = "=" * 60
         
         print(separator)
-        print("Discord Stage Monitor iniciado! (MODO DEBUG)")
+        print("Discord Stage Monitor iniciado! (MODO DEBUG v2)")
         print("Canal: " + CHANNEL_ID)
         msg = "Intervalo: {} segundos".format(CHECK_INTERVAL)
         print(msg)
         print(separator)
         
         # Teste inicial de conexao
-        if not self.test_browserless_connection():
-            print("AVISO: Problemas de conexao com Browserless detectados")
+        self.test_browserless_connection()
         
         print(separator)
         
