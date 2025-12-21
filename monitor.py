@@ -8,7 +8,7 @@ from datetime import datetime
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 SERVER_ID = os.getenv("SERVER_ID", "971218268574584852")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "1435710395909410878")
-N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "http://browserless:3000")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 
@@ -17,7 +17,34 @@ class DiscordStageMonitor:
         self.last_size = None
         self.last_balance = None
         
+    def test_browserless_connection(self):
+        """Testa conexao com Browserless"""
+        print("\n=== TESTE DE CONEXAO BROWSERLESS ===")
+        
+        test_urls = [
+            BROWSERLESS_URL,
+            BROWSERLESS_URL + "/json/version",
+            "http://browserless:3000",
+            "http://browserless:3000/json/version"
+        ]
+        
+        for url in test_urls:
+            try:
+                print("Testando: " + url)
+                response = requests.get(url, timeout=5)
+                print("  Status: " + str(response.status_code) + " - OK!")
+                return True
+            except Exception as e:
+                print("  Erro: " + str(e))
+        
+        print("FALHA: Nenhuma URL funcionou!")
+        return False
+        
     def get_browser_script(self):
+        if not DISCORD_TOKEN:
+            print("ERRO: DISCORD_TOKEN nao configurado!")
+            return None
+            
         return {
             "token": DISCORD_TOKEN,
             "url": "https://discord.com/channels/{}/{}".format(SERVER_ID, CHANNEL_ID)
@@ -26,6 +53,12 @@ class DiscordStageMonitor:
     def take_screenshot(self):
         try:
             params = self.get_browser_script()
+            if not params:
+                return None
+            
+            print("URL Browserless: " + BROWSERLESS_URL)
+            print("Discord Token: " + DISCORD_TOKEN[:20] + "..." if DISCORD_TOKEN else "NAO CONFIGURADO")
+            print("Canal URL: " + params["url"])
             
             script_parts = []
             script_parts.append("module.exports = async ({ page }) => {")
@@ -57,17 +90,33 @@ class DiscordStageMonitor:
             
             browser_script = "\n".join(script_parts)
             
+            print("Enviando requisicao para Browserless...")
+            endpoint = BROWSERLESS_URL + "/function"
+            print("Endpoint: " + endpoint)
+            
             response = requests.post(
-                BROWSERLESS_URL + "/function",
+                endpoint,
                 json={"code": browser_script},
                 timeout=60
             )
             
+            print("Status da resposta: " + str(response.status_code))
             response.raise_for_status()
-            return response.json()
             
+            result = response.json()
+            print("Screenshot capturado com sucesso!")
+            return result
+            
+        except requests.exceptions.ConnectionError as e:
+            print("ERRO DE CONEXAO: Browserless nao acessivel")
+            print("  Detalhes: " + str(e))
+            return None
+        except requests.exceptions.Timeout:
+            print("ERRO: Timeout ao conectar no Browserless")
+            return None
         except Exception as e:
             print("Erro ao tirar screenshot: " + str(e))
+            print("  Tipo: " + type(e).__name__)
             return None
     
     def extract_values_from_text(self, text):
@@ -83,29 +132,11 @@ class DiscordStageMonitor:
             pass
         return None
     
-    def ocr_screenshot(self, screenshot_base64):
-        try:
-            response = requests.post(
-                'https://api.ocr.space/parse/image',
-                data={
-                    'base64Image': 'data:image/png;base64,' + screenshot_base64,
-                    'language': 'eng',
-                    'isOverlayRequired': False,
-                    'OCREngine': 2
-                },
-                timeout=30
-            )
-            
-            result = response.json()
-            if result.get('ParsedResults'):
-                text = result['ParsedResults'][0]['ParsedText']
-                print("Texto OCR extraido com sucesso")
-                return text
-        except Exception as e:
-            print("OCR falhou: " + str(e))
-        return None
-    
     def send_to_n8n(self, data):
+        if not N8N_WEBHOOK_URL:
+            print("N8N_WEBHOOK_URL nao configurado - pulando envio")
+            return False
+            
         try:
             payload = {
                 'timestamp': data['timestamp'],
@@ -134,16 +165,13 @@ class DiscordStageMonitor:
         screenshot_b64 = result.get('screenshot')
         page_text = result.get('pageText', '')
         
+        print("Texto extraido da pagina (primeiros 200 caracteres):")
+        print(page_text[:200])
+        
         values = self.extract_values_from_text(page_text)
         
-        if not values and screenshot_b64:
-            print("Usando OCR para ler imagem...")
-            ocr_text = self.ocr_screenshot(screenshot_b64)
-            if ocr_text:
-                values = self.extract_values_from_text(ocr_text)
-        
         if not values:
-            print("Size e Balance nao encontrados")
+            print("Size e Balance nao encontrados no texto")
             return
         
         size_changed = (self.last_size != values['size'])
@@ -173,10 +201,16 @@ class DiscordStageMonitor:
         separator = "=" * 60
         
         print(separator)
-        print("Discord Stage Monitor iniciado!")
+        print("Discord Stage Monitor iniciado! (MODO DEBUG)")
         print("Canal: " + CHANNEL_ID)
         msg = "Intervalo: {} segundos".format(CHECK_INTERVAL)
         print(msg)
+        print(separator)
+        
+        # Teste inicial de conexao
+        if not self.test_browserless_connection():
+            print("AVISO: Problemas de conexao com Browserless detectados")
+        
         print(separator)
         
         while True:
@@ -196,6 +230,7 @@ class DiscordStageMonitor:
                 break
             except Exception as e:
                 print("Erro: " + str(e))
+                print("Tipo: " + type(e).__name__)
                 time.sleep(60)
 
 if __name__ == "__main__":
