@@ -2,16 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instala dependências do sistema
+# Instala Tesseract OCR e dependencias
 RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
-# Copia e instala dependências Python
+# Copia e instala dependencias Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o código
+# Copia o codigo
 COPY monitor.py .
 
-# Comando de execução
+# Comando de execucao
 CMD ["python", "-u", "monitor.py"]

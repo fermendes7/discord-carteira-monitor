@@ -5,6 +5,15 @@ import re
 import os
 from datetime import datetime
 import base64
+from io import BytesIO
+
+try:
+    from PIL import Image
+    import pytesseract
+    TESSERACT_AVAILABLE = True
+except ImportError:
+    TESSERACT_AVAILABLE = False
+    print("AVISO: pytesseract nao disponivel - usando OCR externo")
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 SERVER_ID = os.getenv("SERVER_ID", "971218268574584852")
@@ -49,14 +58,11 @@ class DiscordStageMonitor:
             print("Status da resposta: " + str(response.status_code))
             
             if response.status_code == 200:
-                # Screenshot retorna imagem binaria
-                screenshot_b64 = base64.b64encode(response.content).decode('utf-8')
-                
                 print("Screenshot capturado com sucesso!")
                 
                 return {
-                    'screenshot': screenshot_b64,
-                    'pageText': '',
+                    'screenshot_bytes': response.content,
+                    'screenshot_b64': base64.b64encode(response.content).decode('utf-8'),
                     'timestamp': datetime.now().isoformat()
                 }
             else:
@@ -64,53 +70,64 @@ class DiscordStageMonitor:
                 print("Resposta: " + response.text[:200])
                 return None
             
-        except requests.exceptions.ConnectionError as e:
-            print("ERRO DE CONEXAO: Browserless nao acessivel")
-            print("  Detalhes: " + str(e))
-            return None
-        except requests.exceptions.Timeout:
-            print("ERRO: Timeout ao conectar no Browserless")
-            return None
         except Exception as e:
             print("Erro ao tirar screenshot: " + str(e))
             print("  Tipo: " + type(e).__name__)
             return None
     
-    def ocr_screenshot(self, screenshot_base64):
+    def ocr_local(self, image_bytes):
+        """OCR usando Tesseract local"""
         try:
-            print("Usando OCR para ler imagem...")
+            if not TESSERACT_AVAILABLE:
+                return None
+                
+            print("Usando Tesseract OCR local...")
             
+            image = Image.open(BytesIO(image_bytes))
+            text = pytesseract.image_to_string(image)
+            
+            print("Texto extraido com Tesseract!")
+            print("Primeiros 300 caracteres:")
+            print(text[:300])
+            
+            return text
+            
+        except Exception as e:
+            print("Tesseract falhou: " + str(e))
+            return None
+    
+    def ocr_external(self, screenshot_base64):
+        """OCR usando API externa (fallback)"""
+        try:
+            print("Tentando OCR externo (API)...")
+            
+            # Tenta OCR.space com API key gratuita
             response = requests.post(
                 'https://api.ocr.space/parse/image',
                 data={
                     'base64Image': 'data:image/png;base64,' + screenshot_base64,
                     'language': 'eng',
                     'isOverlayRequired': 'false',
-                    'OCREngine': '2'
+                    'OCREngine': '2',
+                    'apikey': 'helloworld'  # API key publica de teste
                 },
                 timeout=30
             )
             
-            print("Status OCR: " + str(response.status_code))
+            print("Status OCR externo: " + str(response.status_code))
             
             if response.status_code == 200:
                 result = response.json()
                 
                 if result.get('ParsedResults') and len(result['ParsedResults']) > 0:
                     text = result['ParsedResults'][0].get('ParsedText', '')
-                    print("Texto OCR extraido com sucesso!")
-                    print("Primeiros 300 caracteres do OCR:")
+                    print("Texto OCR extraido com API externa!")
+                    print("Primeiros 300 caracteres:")
                     print(text[:300])
                     return text
-                else:
-                    print("OCR nao retornou resultados")
-                    print("Resposta completa: " + str(result))
-            else:
-                print("OCR falhou com status: " + str(response.status_code))
-                
+                    
         except Exception as e:
-            print("OCR falhou: " + str(e))
-            print("  Tipo: " + type(e).__name__)
+            print("OCR externo falhou: " + str(e))
         
         return None
     
@@ -118,17 +135,26 @@ class DiscordStageMonitor:
         try:
             if not text:
                 return None
-                
-            size_match = re.search(r'size[:\s]*([0-9,.]+)', text, re.IGNORECASE)
-            balance_match = re.search(r'balance[:\s]*([0-9,.]+)', text, re.IGNORECASE)
             
-            if size_match and balance_match:
-                size = float(size_match.group(1).replace(',', ''))
-                balance = float(balance_match.group(1).replace(',', ''))
-                print("Valores encontrados! Size: {}, Balance: {}".format(size, balance))
-                return {'size': size, 'balance': balance}
-            else:
-                print("Padroes Size/Balance nao encontrados no texto")
+            # Tenta varios padroes
+            patterns = [
+                (r'size[:\s]*([0-9,.]+)', r'balance[:\s]*([0-9,.]+)'),
+                (r'Size[:\s]*([0-9,.]+)', r'Balance[:\s]*([0-9,.]+)'),
+                (r'SIZE[:\s]*([0-9,.]+)', r'BALANCE[:\s]*([0-9,.]+)'),
+                (r'tamanho[:\s]*([0-9,.]+)', r'saldo[:\s]*([0-9,.]+)'),
+            ]
+            
+            for size_pattern, balance_pattern in patterns:
+                size_match = re.search(size_pattern, text, re.IGNORECASE)
+                balance_match = re.search(balance_pattern, text, re.IGNORECASE)
+                
+                if size_match and balance_match:
+                    size = float(size_match.group(1).replace(',', ''))
+                    balance = float(balance_match.group(1).replace(',', ''))
+                    print("Valores encontrados! Size: {}, Balance: {}".format(size, balance))
+                    return {'size': size, 'balance': balance}
+            
+            print("Padroes Size/Balance nao encontrados no texto")
                 
         except Exception as e:
             print("Erro ao extrair valores: " + str(e))
@@ -165,14 +191,19 @@ class DiscordStageMonitor:
             print("Falha ao capturar tela")
             return
         
-        screenshot_b64 = result.get('screenshot', '')
+        image_bytes = result.get('screenshot_bytes')
+        image_b64 = result.get('screenshot_b64')
         
-        if not screenshot_b64:
+        if not image_bytes:
             print("Screenshot vazio")
             return
         
-        # Tenta OCR
-        ocr_text = self.ocr_screenshot(screenshot_b64)
+        # Tenta OCR local primeiro (mais rapido e confiavel)
+        ocr_text = self.ocr_local(image_bytes)
+        
+        # Se falhar, tenta OCR externo
+        if not ocr_text:
+            ocr_text = self.ocr_external(image_b64)
         
         if not ocr_text:
             print("Nao foi possivel extrair texto da imagem")
@@ -182,6 +213,9 @@ class DiscordStageMonitor:
         
         if not values:
             print("Size e Balance nao encontrados no texto")
+            print("\n=== TEXTO COMPLETO EXTRAIDO ===")
+            print(ocr_text)
+            print("=== FIM DO TEXTO ===\n")
             return
         
         size_changed = (self.last_size != values['size'])
@@ -212,6 +246,12 @@ class DiscordStageMonitor:
         
         print(separator)
         print("Discord Stage Monitor iniciado!")
+        
+        if TESSERACT_AVAILABLE:
+            print("OCR: Tesseract Local (RAPIDO)")
+        else:
+            print("OCR: API Externa (LENTO)")
+        
         print("Canal: " + CHANNEL_ID)
         msg = "Intervalo: {} segundos".format(CHECK_INTERVAL)
         print(msg)
