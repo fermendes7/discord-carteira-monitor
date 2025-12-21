@@ -26,7 +26,8 @@ class DiscordStageMonitor:
         self.last_size = None
         self.last_balance = None
         
-    def take_screenshot(self):
+    def take_screenshot_with_auth(self):
+        """Tira screenshot COM autenticacao Discord"""
         try:
             if not DISCORD_TOKEN:
                 print("ERRO: DISCORD_TOKEN nao configurado!")
@@ -34,46 +35,105 @@ class DiscordStageMonitor:
             
             discord_url = "https://discord.com/channels/{}/{}".format(SERVER_ID, CHANNEL_ID)
             
-            print("Capturando screenshot direto...")
-            screenshot_endpoint = BROWSERLESS_URL + "/screenshot"
-            screenshot_payload = {
-                "url": discord_url,
-                "options": {
-                    "fullPage": False,
-                    "type": "png"
-                }
+            print("Autenticando no Discord e capturando screenshot...")
+            
+            # Usa /content com script de autenticacao
+            endpoint = BROWSERLESS_URL + "/content"
+            
+            # Script para autenticar e navegar
+            auth_script = """
+            (async () => {{
+                // Vai para pagina de login
+                await page.goto('https://discord.com/login');
+                
+                // Injeta token no localStorage
+                await page.evaluate((token) => {{
+                    function setToken() {{
+                        const iframe = document.createElement('iframe');
+                        iframe.style.display = 'none';
+                        document.body.appendChild(iframe);
+                        iframe.contentWindow.localStorage.setItem('token', JSON.stringify(token));
+                    }}
+                    setToken();
+                }}, '{}');
+                
+                // Aguarda um pouco
+                await page.waitForTimeout(2000);
+                
+                // Recarrega para aplicar token
+                await page.reload();
+                await page.waitForTimeout(3000);
+                
+                // Navega para o canal
+                await page.goto('{}');
+                await page.waitForTimeout(8000);
+                
+                // Tira screenshot
+                const screenshot = await page.screenshot({{ type: 'png', fullPage: false }});
+                
+                // Pega texto da pagina
+                const text = await page.evaluate(() => document.body.innerText);
+                
+                return {{
+                    screenshot: screenshot.toString('base64'),
+                    text: text
+                }};
+            }})();
+            """.format(DISCORD_TOKEN, discord_url)
+            
+            payload = {
+                "code": auth_script
             }
             
+            print("Enviando para: " + endpoint)
+            
             response = requests.post(
-                screenshot_endpoint,
-                json=screenshot_payload,
-                timeout=60
+                endpoint,
+                json=payload,
+                timeout=90
             )
             
             print("Status: " + str(response.status_code))
             
             if response.status_code == 200:
-                print("Screenshot OK!")
-                
-                # Salva screenshot para debug
                 try:
-                    with open('/tmp/screenshot_debug.png', 'wb') as f:
-                        f.write(response.content)
-                    print("Screenshot salvo em: /tmp/screenshot_debug.png")
-                except:
-                    pass
-                
-                return {
-                    'screenshot_bytes': response.content,
-                    'screenshot_b64': base64.b64encode(response.content).decode('utf-8'),
-                    'timestamp': datetime.now().isoformat()
-                }
+                    result = response.json()
+                    
+                    screenshot_b64 = result.get('screenshot', '')
+                    page_text = result.get('text', '')
+                    
+                    if screenshot_b64:
+                        screenshot_bytes = base64.b64decode(screenshot_b64)
+                        
+                        # Salva para debug
+                        try:
+                            with open('/tmp/screenshot_auth.png', 'wb') as f:
+                                f.write(screenshot_bytes)
+                            print("Screenshot salvo em: /tmp/screenshot_auth.png")
+                        except:
+                            pass
+                        
+                        print("Screenshot COM autenticacao capturado!")
+                        
+                        if page_text:
+                            print("Texto da pagina (primeiros 500 chars):")
+                            print(page_text[:500])
+                        
+                        return {
+                            'screenshot_bytes': screenshot_bytes,
+                            'screenshot_b64': screenshot_b64,
+                            'page_text': page_text,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                except Exception as e:
+                    print("Erro ao processar resposta: " + str(e))
             else:
-                print("Erro: " + str(response.status_code))
-                return None
+                print("Erro HTTP: " + response.text[:300])
+            
+            return None
             
         except Exception as e:
-            print("Erro: " + str(e))
+            print("Erro ao capturar: " + str(e))
             return None
     
     def ocr_local(self, image_bytes):
@@ -81,15 +141,15 @@ class DiscordStageMonitor:
             if not TESSERACT_AVAILABLE:
                 return None
                 
-            print("Tesseract OCR local...")
+            print("\nTesseract OCR...")
             image = Image.open(BytesIO(image_bytes))
             text = pytesseract.image_to_string(image)
             
-            print("\n" + "="*60)
-            print("TEXTO TESSERACT COMPLETO:")
             print("="*60)
-            print(text)
-            print("="*60 + "\n")
+            print("TEXTO TESSERACT:")
+            print("="*60)
+            print(text if text else "[VAZIO]")
+            print("="*60)
             
             return text
             
@@ -97,52 +157,17 @@ class DiscordStageMonitor:
             print("Tesseract falhou: " + str(e))
             return None
     
-    def ocr_external(self, screenshot_base64):
-        try:
-            print("OCR externo...")
-            
-            response = requests.post(
-                'https://api.ocr.space/parse/image',
-                data={
-                    'base64Image': 'data:image/png;base64,' + screenshot_base64,
-                    'language': 'eng',
-                    'isOverlayRequired': 'false',
-                    'OCREngine': '2',
-                    'apikey': 'helloworld'
-                },
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                
-                if result.get('ParsedResults') and len(result['ParsedResults']) > 0:
-                    text = result['ParsedResults'][0].get('ParsedText', '')
-                    
-                    print("\n" + "="*60)
-                    print("TEXTO OCR EXTERNO COMPLETO:")
-                    print("="*60)
-                    print(text)
-                    print("="*60 + "\n")
-                    
-                    return text
-                    
-        except Exception as e:
-            print("OCR externo falhou: " + str(e))
-        
-        return None
-    
     def extract_values_from_text(self, text):
         try:
-            if not text or len(text.strip()) == 0:
-                print("Texto vazio!")
+            if not text or len(text.strip()) < 5:
+                print("Texto vazio ou muito curto")
                 return None
             
-            print("Procurando padroes no texto...")
+            print("\nProcurando padroes...")
             
-            # Padroes mais flexiveis
+            # Padroes flexiveis
             patterns = [
-                (r'(?:size|tamanho|SIZE)[\s:]*([0-9,.]+)', r'(?:balance|saldo|BALANCE)[\s:]*([0-9,.]+)'),
+                (r'(?:size|SIZE|Size)[\s:]*([0-9,.]+)', r'(?:balance|BALANCE|Balance)[\s:]*([0-9,.]+)'),
                 (r'([0-9,.]+)[\s]*(?:size|SIZE)', r'([0-9,.]+)[\s]*(?:balance|BALANCE)'),
             ]
             
@@ -151,82 +176,108 @@ class DiscordStageMonitor:
                 balance_match = re.search(balance_pattern, text, re.IGNORECASE)
                 
                 if size_match and balance_match:
-                    size_str = size_match.group(1)
-                    balance_str = balance_match.group(1)
+                    size = float(size_match.group(1).replace(',', ''))
+                    balance = float(balance_match.group(1).replace(',', ''))
                     
-                    size = float(size_str.replace(',', ''))
-                    balance = float(balance_str.replace(',', ''))
-                    
-                    print("VALORES ENCONTRADOS! Size: {}, Balance: {}".format(size, balance))
+                    print("ENCONTRADO! Size: {}, Balance: {}".format(size, balance))
                     return {'size': size, 'balance': balance}
             
             print("Padroes nao encontrados")
                 
         except Exception as e:
-            print("Erro ao extrair: " + str(e))
+            print("Erro: " + str(e))
             
         return None
     
+    def send_to_n8n(self, data):
+        if not N8N_WEBHOOK_URL:
+            return False
+            
+        try:
+            payload = {
+                'timestamp': data['timestamp'],
+                'size': data['size'],
+                'balance': data['balance']
+            }
+            
+            response = requests.post(N8N_WEBHOOK_URL, json=payload, timeout=10)
+            response.raise_for_status()
+            
+            print("Enviado para n8n!")
+            return True
+        except Exception as e:
+            print("Erro ao enviar: " + str(e))
+            return False
+    
     def check_carteira(self):
-        print("\n[VERIFICACAO] Capturando tela...")
+        print("\n" + "="*60)
+        print("[VERIFICACAO] " + datetime.now().strftime("%H:%M:%S"))
+        print("="*60)
         
-        result = self.take_screenshot()
+        result = self.take_screenshot_with_auth()
         if not result:
+            print("Falha ao capturar")
             return
         
-        image_bytes = result.get('screenshot_bytes')
-        image_b64 = result.get('screenshot_b64')
+        # Primeiro tenta usar o texto da pagina (se veio do /content)
+        page_text = result.get('page_text', '')
+        values = None
         
-        # Tenta Tesseract local
-        ocr_text = self.ocr_local(image_bytes)
+        if page_text and len(page_text) > 10:
+            print("\nUsando texto direto da pagina...")
+            values = self.extract_values_from_text(page_text)
         
-        # Fallback para API externa
-        if not ocr_text or len(ocr_text.strip()) < 10:
-            print("Texto Tesseract vazio - tentando API externa...")
-            ocr_text = self.ocr_external(image_b64)
-        
-        if not ocr_text or len(ocr_text.strip()) < 10:
-            print("ERRO: Nenhum texto extraido!")
-            return
-        
-        values = self.extract_values_from_text(ocr_text)
+        # Se nao achou, tenta OCR na imagem
+        if not values:
+            image_bytes = result.get('screenshot_bytes')
+            if image_bytes:
+                ocr_text = self.ocr_local(image_bytes)
+                if ocr_text:
+                    values = self.extract_values_from_text(ocr_text)
         
         if not values:
-            print("Size/Balance nao encontrados")
+            print("\nSize/Balance NAO ENCONTRADOS")
             return
         
-        # Logica de mudanca
+        # Detecta mudancas
         size_changed = (self.last_size != values['size'])
         balance_changed = (self.last_balance != values['balance'])
         
         if size_changed or balance_changed:
-            print("\n*** MUDANCA DETECTADA! ***")
-            print("  Size: {} -> {}".format(self.last_size, values['size']))
-            print("  Balance: {} -> {}".format(self.last_balance, values['balance']))
+            print("\n*** MUDANCA! ***")
+            print("Size: {} -> {}".format(self.last_size, values['size']))
+            print("Balance: {} -> {}".format(self.last_balance, values['balance']))
             
-            self.last_size = values['size']
-            self.last_balance = values['balance']
+            data = {
+                'timestamp': result.get('timestamp'),
+                'size': values['size'],
+                'balance': values['balance']
+            }
+            
+            if self.send_to_n8n(data):
+                self.last_size = values['size']
+                self.last_balance = values['balance']
         else:
-            print("Sem mudancas (Size: {}, Balance: {})".format(values['size'], values['balance']))
+            print("\nSem mudancas (Size: {}, Balance: {})".format(values['size'], values['balance']))
     
     def run(self):
         print("="*60)
-        print("Discord Stage Monitor - MODO DEBUG COMPLETO")
-        print("OCR: " + ("Tesseract Local" if TESSERACT_AVAILABLE else "API Externa"))
-        print("Intervalo: {} segundos".format(CHECK_INTERVAL))
+        print("Discord Stage Monitor - COM AUTENTICACAO")
+        print("OCR: " + ("Tesseract" if TESSERACT_AVAILABLE else "Externo"))
+        print("Intervalo: {} seg".format(CHECK_INTERVAL))
         print("="*60)
         
         while True:
             try:
                 self.check_carteira()
-                print("\nAguardando {} segundos...\n".format(CHECK_INTERVAL))
+                print("\nAguardando {}s...\n".format(CHECK_INTERVAL))
                 time.sleep(CHECK_INTERVAL)
                 
             except KeyboardInterrupt:
-                print("Monitor encerrado")
+                print("Encerrado")
                 break
             except Exception as e:
-                print("Erro: " + str(e))
+                print("ERRO: " + str(e))
                 time.sleep(60)
 
 if __name__ == "__main__":
