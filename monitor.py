@@ -4,6 +4,7 @@ import json
 import re
 import os
 from datetime import datetime
+import base64
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 SERVER_ID = os.getenv("SERVER_ID", "971218268574584852")
@@ -29,57 +30,89 @@ class DiscordStageMonitor:
             print("Discord Token: " + (DISCORD_TOKEN[:20] + "..." if DISCORD_TOKEN else "NAO CONFIGURADO"))
             print("Canal URL: " + discord_url)
             
-            # Script sem module.exports (formato correto)
-            script = """
-async ({ page }) => {
-  await page.goto('https://discord.com/login');
-  await page.evaluate((token) => {
-    setInterval(() => {
-      const iframe = document.createElement('iframe');
-      document.body.appendChild(iframe);
-      iframe.contentWindow.localStorage.token = `"${token}"`;
-    }, 50);
-    setTimeout(() => { location.reload(); }, 2500);
-  }, '""" + DISCORD_TOKEN + """');
-  await page.waitForTimeout(5000);
-  await page.goto('""" + discord_url + """');
-  await page.waitForTimeout(8000);
-  const screenshot = await page.screenshot({
-    encoding: 'base64',
-    fullPage: false
-  });
-  const pageText = await page.evaluate(() => {
-    return document.body.innerText;
-  });
-  return {
-    screenshot: screenshot,
-    pageText: pageText,
-    timestamp: new Date().toISOString()
-  };
-}
-"""
-            
+            # Usa endpoint /content com goto e waitForTimeout
             print("Enviando requisicao para Browserless...")
-            endpoint = BROWSERLESS_URL + "/function"
+            endpoint = BROWSERLESS_URL + "/content"
+            
+            # Payload com navegacao e injecao de token
+            payload = {
+                "url": "https://discord.com/login",
+                "gotoOptions": {
+                    "waitUntil": "networkidle2"
+                },
+                "addScriptTag": [
+                    {
+                        "content": """
+                        setInterval(() => {{
+                            const iframe = document.createElement('iframe');
+                            document.body.appendChild(iframe);
+                            iframe.contentWindow.localStorage.token = '"{}";
+                        }}, 50);
+                        setTimeout(() => {{ location.href = '{}'; }}, 3000);
+                        """.format(DISCORD_TOKEN, discord_url)
+                    }
+                ],
+                "waitFor": 10000
+            }
             
             print("Endpoint: " + endpoint)
+            print("Tentando capturar com /content...")
             
             response = requests.post(
                 endpoint,
-                json={"code": script},
+                json=payload,
                 timeout=60
             )
             
             print("Status da resposta: " + str(response.status_code))
             
             if response.status_code != 200:
-                print("Resposta de erro: " + response.text[:200])
+                print("Resposta de erro: " + response.text[:300])
+                
+                # Fallback: tenta /screenshot direto
+                print("\nTentando fallback com /screenshot direto...")
+                screenshot_endpoint = BROWSERLESS_URL + "/screenshot"
+                screenshot_payload = {
+                    "url": discord_url,
+                    "options": {
+                        "fullPage": False,
+                        "type": "png"
+                    }
+                }
+                
+                response = requests.post(
+                    screenshot_endpoint,
+                    json=screenshot_payload,
+                    timeout=60
+                )
+                
+                print("Status screenshot direto: " + str(response.status_code))
+                
+                if response.status_code == 200:
+                    # Screenshot retorna imagem binaria
+                    screenshot_b64 = base64.b64encode(response.content).decode('utf-8')
+                    
+                    # Tenta pegar texto da pagina
+                    print("Screenshot capturado! Tentando extrair texto...")
+                    
+                    return {
+                        'screenshot': screenshot_b64,
+                        'pageText': '',  # Texto vazio - vamos usar OCR
+                        'timestamp': datetime.now().isoformat()
+                    }
             
             response.raise_for_status()
             
-            result = response.json()
-            print("Screenshot capturado com sucesso!")
-            return result
+            # Se /content funcionar
+            page_text = response.text
+            
+            print("Conteudo capturado com sucesso!")
+            
+            return {
+                'screenshot': '',
+                'pageText': page_text,
+                'timestamp': datetime.now().isoformat()
+            }
             
         except requests.exceptions.ConnectionError as e:
             print("ERRO DE CONEXAO: Browserless nao acessivel")
@@ -97,6 +130,29 @@ async ({ page }) => {
             print("Erro ao tirar screenshot: " + str(e))
             print("  Tipo: " + type(e).__name__)
             return None
+    
+    def ocr_screenshot(self, screenshot_base64):
+        try:
+            print("Usando OCR para ler imagem...")
+            response = requests.post(
+                'https://api.ocr.space/parse/image',
+                data={
+                    'base64Image': 'data:image/png;base64,' + screenshot_base64,
+                    'language': 'eng',
+                    'isOverlayRequired': False,
+                    'OCREngine': 2
+                },
+                timeout=30
+            )
+            
+            result = response.json()
+            if result.get('ParsedResults'):
+                text = result['ParsedResults'][0]['ParsedText']
+                print("Texto OCR extraido com sucesso")
+                return text
+        except Exception as e:
+            print("OCR falhou: " + str(e))
+        return None
     
     def extract_values_from_text(self, text):
         try:
@@ -141,17 +197,24 @@ async ({ page }) => {
             print("Falha ao capturar tela")
             return
         
-        screenshot_b64 = result.get('screenshot')
+        screenshot_b64 = result.get('screenshot', '')
         page_text = result.get('pageText', '')
         
-        print("\n=== TEXTO EXTRAIDO DA PAGINA ===")
-        print(page_text[:500])
-        print("=== FIM DO TEXTO ===\n")
+        if page_text:
+            print("\n=== TEXTO EXTRAIDO DA PAGINA ===")
+            print(page_text[:500])
+            print("=== FIM DO TEXTO ===\n")
         
         values = self.extract_values_from_text(page_text)
         
+        # Se nao achou no texto, tenta OCR
+        if not values and screenshot_b64:
+            ocr_text = self.ocr_screenshot(screenshot_b64)
+            if ocr_text:
+                values = self.extract_values_from_text(ocr_text)
+        
         if not values:
-            print("Size e Balance nao encontrados no texto")
+            print("Size e Balance nao encontrados")
             return
         
         size_changed = (self.last_size != values['size'])
