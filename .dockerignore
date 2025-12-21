@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+.git/
+.gitignore
+*.md
+memory.txt
+progresso.txt
+temp_repo/
+*.txt
+!requirements.txt
