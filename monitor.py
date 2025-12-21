@@ -25,17 +25,13 @@ class DiscordMonitor:
             
             endpoint = BROWSERLESS_URL + "/screenshot"
             
+            # Payload simplificado - apenas campos basicos
             payload = {
                 "url": discord_url,
-                "gotoOptions": {
-                    "waitUntil": "networkidle0",
-                    "timeout": 30000
-                },
                 "options": {
                     "type": "png",
                     "fullPage": False
-                },
-                "waitFor": 5000
+                }
             }
             
             response = requests.post(endpoint, json=payload, timeout=60)
@@ -120,29 +116,29 @@ class DiscordMonitor:
     def run(self):
         """Loop principal"""
         print("="*60)
-        print("Discord Monitor - Envia screenshot para n8n")
+        print("Discord Monitor - Screenshot para n8n")
         print("Canal: " + CHANNEL_ID)
         print("Intervalo: {}s".format(CHECK_INTERVAL))
-        print("n8n webhook: " + (N8N_WEBHOOK_URL[:50] + "..." if N8N_WEBHOOK_URL else "NAO CONFIGURADO"))
+        print("n8n: " + (N8N_WEBHOOK_URL[:50] + "..." if N8N_WEBHOOK_URL else "NAO CONFIGURADO"))
         print("="*60)
         
         if not N8N_WEBHOOK_URL:
             print("\nAVISO: N8N_WEBHOOK_URL nao configurado!")
-            print("Configure a variavel de ambiente e reinicie.\n")
+            print("Configure a variavel de ambiente.\n")
         
         while True:
             try:
                 self.check()
                 
-                print("\nAguardando {}s...\n".format(CHECK_INTERVAL))
+                print("\nProxima verificacao em {}s...\n".format(CHECK_INTERVAL))
                 time.sleep(CHECK_INTERVAL)
                 
             except KeyboardInterrupt:
-                print("\nMonitor encerrado pelo usuario")
+                print("\nMonitor encerrado")
                 break
             except Exception as e:
                 print("\nERRO: " + str(e))
-                print("Aguardando 60s antes de tentar novamente...\n")
+                print("Aguardando 60s...\n")
                 time.sleep(60)
 
 if __name__ == "__main__":
