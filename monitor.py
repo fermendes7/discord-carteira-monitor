@@ -14,104 +14,59 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 
 class DiscordMonitor:
     def __init__(self):
-        print("Inicializando Discord Monitor v5 (COM AUTENTICACAO)")
+        print("Inicializando Discord Monitor v6 (COOKIES METHOD)")
         
-    def take_screenshot_with_auth(self):
-        """Captura screenshot COM autenticacao Discord via Puppeteer"""
+    def take_screenshot_with_cookies(self):
+        """Captura screenshot usando cookies method"""
         try:
             discord_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
             
-            print("Capturando com autenticacao Discord...")
+            print("Capturando com cookies Discord...")
             print(f"URL: {discord_url}")
             
-            endpoint = f"{BROWSERLESS_URL}/function"
-            
-            # Script Puppeteer completo com autenticacao
-            puppeteer_script = f"""
-module.exports = async ({{ page }}) => {{
-    try {{
-        console.log('Iniciando captura autenticada...');
-        
-        // 1. Navegar para pagina de login do Discord
-        console.log('Navegando para Discord login...');
-        await page.goto('https://discord.com/login', {{
-            waitUntil: 'networkidle2',
-            timeout: 60000
-        }});
-        await page.waitForTimeout(3000);
-        
-        // 2. Injetar token no localStorage
-        console.log('Injetando token no localStorage...');
-        await page.evaluate((token) => {{
-            localStorage.setItem('token', `"${{token}}"`);
-        }}, '{DISCORD_TOKEN}');
-        
-        console.log('Token injetado!');
-        
-        // 3. Navegar para canal especifico
-        console.log('Navegando para canal: {discord_url}');
-        await page.goto('{discord_url}', {{
-            waitUntil: 'networkidle2',
-            timeout: 60000
-        }});
-        
-        // 4. Aguardar carregamento do Discord (15 segundos)
-        console.log('Aguardando carregamento completo...');
-        await page.waitForTimeout(15000);
-        
-        // 5. Capturar screenshot
-        console.log('Capturando screenshot...');
-        const screenshot = await page.screenshot({{
-            type: 'png',
-            fullPage: false
-        }});
-        
-        console.log('Screenshot capturado com sucesso!');
-        
-        return {{
-            type: 'image/png',
-            data: screenshot.toString('base64'),
-            success: true
-        }};
-        
-    }} catch (error) {{
-        console.error('Erro no Puppeteer:', error);
-        return {{
-            error: error.message,
-            success: false
-        }};
-    }}
-}};
-"""
+            endpoint = f"{BROWSERLESS_URL}/screenshot"
             
             payload = {
-                "code": puppeteer_script
+                "url": discord_url,
+                "options": {
+                    "type": "png",
+                    "fullPage": False
+                },
+                "cookies": [
+                    {
+                        "name": "token",
+                        "value": DISCORD_TOKEN,
+                        "domain": ".discord.com",
+                        "path": "/",
+                        "httpOnly": True,
+                        "secure": True
+                    }
+                ],
+                "gotoOptions": {
+                    "waitUntil": "networkidle2",
+                    "timeout": 90000
+                },
+                "waitFor": 15000
             }
             
-            print("Enviando para Browserless /function...")
-            response = requests.post(endpoint, json=payload, timeout=150)
+            print("Enviando para Browserless /screenshot com cookies...")
+            response = requests.post(endpoint, json=payload, timeout=120)
             
             print(f"Status Browserless: {response.status_code}")
             
             if response.status_code == 200:
-                result = response.json()
+                screenshot_bytes = response.content
+                screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
                 
-                if result.get('success'):
-                    screenshot_b64 = result['data']
-                    screenshot_bytes = base64.b64decode(screenshot_b64)
-                    
-                    print(f"Screenshot autenticado capturado! ({len(screenshot_bytes)} bytes)")
-                    
-                    return {
-                        'screenshot_base64': screenshot_b64,
-                        'screenshot_bytes': screenshot_bytes,
-                        'timestamp': datetime.now().isoformat(),
-                        'url': discord_url,
-                        'authenticated': True
-                    }
-                else:
-                    print(f"Erro no Puppeteer: {result.get('error')}")
-                    return None
+                print(f"Screenshot com cookies capturado! ({len(screenshot_bytes)} bytes)")
+                
+                return {
+                    'screenshot_base64': screenshot_b64,
+                    'screenshot_bytes': screenshot_bytes,
+                    'timestamp': datetime.now().isoformat(),
+                    'url': discord_url,
+                    'authenticated': True
+                }
             else:
                 print(f"Erro HTTP: {response.text[:500]}")
                 return None
@@ -123,7 +78,7 @@ module.exports = async ({{ page }}) => {{
             return None
     
     def take_screenshot_fallback(self):
-        """Metodo fallback sem autenticacao (caso o v5 falhe)"""
+        """Metodo fallback sem autenticacao"""
         try:
             discord_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
             
@@ -206,15 +161,15 @@ module.exports = async ({{ page }}) => {{
     def check(self):
         """Captura e envia para n8n"""
         print("\n" + "="*70)
-        print(f"[CHECK v5] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"[CHECK v6] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*70)
         
-        # Tentar metodo autenticado primeiro
-        result = self.take_screenshot_with_auth()
+        # Tentar metodo com cookies primeiro
+        result = self.take_screenshot_with_cookies()
         
         # Se falhar, tentar fallback
         if not result:
-            print("\nMetodo autenticado falhou, tentando fallback...")
+            print("\nMetodo com cookies falhou, tentando fallback...")
             result = self.take_screenshot_fallback()
         
         if not result:
@@ -237,7 +192,7 @@ module.exports = async ({{ page }}) => {{
     def run(self):
         """Loop principal"""
         print("="*70)
-        print("Discord Monitor v5 - COM AUTENTICACAO")
+        print("Discord Monitor v6 - COOKIES METHOD")
         print("="*70)
         print(f"Canal: {CHANNEL_ID}")
         print(f"Intervalo: {CHECK_INTERVAL}s")
