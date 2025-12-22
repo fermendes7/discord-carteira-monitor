@@ -16,7 +16,7 @@ class DiscordMonitor:
         pass
         
     def take_screenshot(self):
-        """Captura screenshot do canal Discord - VERSAO COM WAIT"""
+        """Captura screenshot do canal Discord"""
         try:
             discord_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
             
@@ -25,7 +25,7 @@ class DiscordMonitor:
             
             endpoint = f"{BROWSERLESS_URL}/screenshot"
             
-            # Payload com waitUntil para esperar carregar
+            # Payload SEM waitFor (nao suportado)
             payload = {
                 "url": discord_url,
                 "options": {
@@ -34,12 +34,11 @@ class DiscordMonitor:
                 },
                 "gotoOptions": {
                     "waitUntil": "networkidle2",
-                    "timeout": 30000
-                },
-                "waitFor": 5000  # Espera adicional de 5 segundos
+                    "timeout": 60000
+                }
             }
             
-            response = requests.post(endpoint, json=payload, timeout=60)
+            response = requests.post(endpoint, json=payload, timeout=90)
             
             print(f"Status: {response.status_code}")
             
@@ -121,7 +120,7 @@ class DiscordMonitor:
     def run(self):
         """Loop principal"""
         print("="*60)
-        print("Discord Monitor - Screenshot com Wait")
+        print("Discord Monitor - Screenshot v3")
         print(f"Canal: {CHANNEL_ID}")
         print(f"Intervalo: {CHECK_INTERVAL}s")
         print(f"n8n: {N8N_WEBHOOK_URL[:50]}..." if N8N_WEBHOOK_URL else "NAO CONFIGURADO")
