@@ -16,33 +16,38 @@ class DiscordMonitor:
         pass
         
     def take_screenshot(self):
-        """Captura screenshot do canal Discord"""
+        """Captura screenshot do canal Discord - VERSAO COM WAIT"""
         try:
-            discord_url = "https://discord.com/channels/{}/{}".format(SERVER_ID, CHANNEL_ID)
+            discord_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
             
             print("Capturando screenshot...")
-            print("URL: " + discord_url)
+            print(f"URL: {discord_url}")
             
-            endpoint = BROWSERLESS_URL + "/screenshot"
+            endpoint = f"{BROWSERLESS_URL}/screenshot"
             
-            # Payload simplificado - apenas campos basicos
+            # Payload com waitUntil para esperar carregar
             payload = {
                 "url": discord_url,
                 "options": {
                     "type": "png",
                     "fullPage": False
-                }
+                },
+                "gotoOptions": {
+                    "waitUntil": "networkidle2",
+                    "timeout": 30000
+                },
+                "waitFor": 5000  # Espera adicional de 5 segundos
             }
             
             response = requests.post(endpoint, json=payload, timeout=60)
             
-            print("Status: " + str(response.status_code))
+            print(f"Status: {response.status_code}")
             
             if response.status_code == 200:
                 screenshot_bytes = response.content
                 screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
                 
-                print("Screenshot capturado! ({} bytes)".format(len(screenshot_bytes)))
+                print(f"Screenshot capturado! ({len(screenshot_bytes)} bytes)")
                 
                 return {
                     'screenshot_base64': screenshot_b64,
@@ -51,11 +56,11 @@ class DiscordMonitor:
                     'url': discord_url
                 }
             else:
-                print("Erro: " + response.text[:200])
+                print(f"Erro: {response.text[:200]}")
                 return None
             
         except Exception as e:
-            print("Erro ao capturar: " + str(e))
+            print(f"Erro ao capturar: {str(e)}")
             return None
     
     def send_to_n8n(self, data):
@@ -81,23 +86,23 @@ class DiscordMonitor:
                 timeout=30
             )
             
-            print("Status n8n: " + str(response.status_code))
+            print(f"Status n8n: {response.status_code}")
             
             if response.status_code == 200:
                 print("Enviado com sucesso!")
                 return True
             else:
-                print("Erro n8n: " + response.text[:200])
+                print(f"Erro n8n: {response.text[:200]}")
                 return False
                 
         except Exception as e:
-            print("Erro ao enviar: " + str(e))
+            print(f"Erro ao enviar: {str(e)}")
             return False
     
     def check(self):
         """Captura e envia para n8n"""
         print("\n" + "="*60)
-        print("[CHECK] " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        print(f"[CHECK] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*60)
         
         result = self.take_screenshot()
@@ -116,10 +121,10 @@ class DiscordMonitor:
     def run(self):
         """Loop principal"""
         print("="*60)
-        print("Discord Monitor - Screenshot para n8n")
-        print("Canal: " + CHANNEL_ID)
-        print("Intervalo: {}s".format(CHECK_INTERVAL))
-        print("n8n: " + (N8N_WEBHOOK_URL[:50] + "..." if N8N_WEBHOOK_URL else "NAO CONFIGURADO"))
+        print("Discord Monitor - Screenshot com Wait")
+        print(f"Canal: {CHANNEL_ID}")
+        print(f"Intervalo: {CHECK_INTERVAL}s")
+        print(f"n8n: {N8N_WEBHOOK_URL[:50]}..." if N8N_WEBHOOK_URL else "NAO CONFIGURADO")
         print("="*60)
         
         if not N8N_WEBHOOK_URL:
@@ -130,14 +135,14 @@ class DiscordMonitor:
             try:
                 self.check()
                 
-                print("\nProxima verificacao em {}s...\n".format(CHECK_INTERVAL))
+                print(f"\nProxima verificacao em {CHECK_INTERVAL}s...\n")
                 time.sleep(CHECK_INTERVAL)
                 
             except KeyboardInterrupt:
                 print("\nMonitor encerrado")
                 break
             except Exception as e:
-                print("\nERRO: " + str(e))
+                print(f"\nERRO: {str(e)}")
                 print("Aguardando 60s...\n")
                 time.sleep(60)
 
