@@ -1,178 +1,172 @@
-# ?? Discord Carteira Monitor
+ï»¿# Discord Stage Voice Monitor v8
 
-Sistema de monitoramento automatizado 24/7 de carteira de trading no Discord com alertas via WhatsApp.
+Sistema automatizado para capturar tela compartilhada em Stage Voice Channel do Discord e enviar para n8n para processamento OCR.
 
-## ?? Funcionalidades
+## ğŸ¯ Objetivo
 
-- ? **Captura automática** de tela do Discord (canal stage/palco)
-- ? **Extração inteligente** de valores Size e Balance (regex + OCR fallback)
-- ? **Detecção de mudanças** em tempo real
-- ? **Alertas instantâneos** via webhook ? n8n ? WhatsApp
-- ? **Deploy containerizado** no EasyPanel
-- ? **Monitoramento 24/7** com intervalo configurável
+Monitorar palco de voz "ClÃ¡ssica" no Discord que exibe uma carteira de trading 24/7, capturar screenshots a cada 5 minutos e extrair valores via OCR.
 
-## ??? Arquitetura
+## ğŸ“‹ Requisitos
 
-```
-Discord Stage Channel
-    ? (captura via Browserless)
-Python Monitor (Docker)
-    ? (webhook HTTP)
-n8n Workflow
-    +-? Google Sheets (histórico)
-    +-? Evolution API ? WhatsApp
-```
+- Docker
+- Browserless (container)
+- n8n (para processar screenshots)
+- Token Discord vÃ¡lido
 
-## ?? Deploy Rápido
+## ğŸš€ Deploy RÃ¡pido no EasyPanel
 
-### 1. Clone o Repositório
-```bash
-git clone https://github.com/fermendes7/discord-carteira-monitor.git
-cd discord-carteira-monitor
-```
+### Passo 1: Preparar RepositÃ³rio GitHub
 
-### 2. Configure Variáveis de Ambiente
+1. Fazer fork/clone deste repositÃ³rio
+2. Garantir que os arquivos estÃ£o presentes:
+   - `monitor.py` âœ…
+   - `Dockerfile` âœ…
+   - `requirements.txt` âœ…
+   - `.gitignore` âœ…
+
+### Passo 2: Criar App no EasyPanel
+
+1. EasyPanel â†’ **New App** â†’ **From GitHub**
+2. Conectar repositÃ³rio
+3. ConfiguraÃ§Ãµes:
+   - **Name**: `discord-stage-monitor`
+   - **Type**: `Docker`
+   - **Dockerfile**: `Dockerfile`
+
+### Passo 3: Configurar Environment Variables
+
+No EasyPanel â†’ App â†’ **Environment**, adicionar:
 
 ```env
-DISCORD_TOKEN=seu_token_discord_aqui
+DISCORD_TOKEN=MTE3N........(seu token completo)
 SERVER_ID=971218268574584852
 CHANNEL_ID=1435710395909410878
-N8N_WEBHOOK_URL=https://seu-n8n.com/webhook/carteira
+N8N_WEBHOOK_URL=https://webhook.bola9.com.br/webhook/carteira-discord
 BROWSERLESS_URL=http://browserless:3000
 CHECK_INTERVAL=300
 ```
 
-### 3. Deploy no EasyPanel
+### Passo 4: Deploy
 
-1. Acesse **EasyPanel** ? Novo Serviço
-2. Selecione **GitHub** como fonte
-3. Configure:
-   - Repositório: `fermendes7/discord-carteira-monitor`
-   - Branch: `main`
-   - Build: Dockerfile
-4. Adicione as 6 variáveis de ambiente
-5. Clique em **Implantar**
+1. **Build** â†’ Aguardar build completar
+2. **Deploy** â†’ Iniciar container
+3. **Logs** â†’ Verificar se estÃ¡ rodando
 
-## ?? Estrutura do Projeto
+## ğŸ”‘ Como Obter Discord Token
 
-```
-discord-carteira-monitor/
-+-- monitor.py           # Script principal Python
-+-- Dockerfile          # Configuração Docker
-+-- requirements.txt    # Dependências Python
-+-- .dockerignore      # Arquivos ignorados no build
-+-- README.md          # Este arquivo
-```
+1. Abrir Discord no navegador (nÃ£o app desktop)
+2. Login na sua conta
+3. Abrir DevTools (F12)
+4. Ir em **Network** tab
+5. Recarregar pÃ¡gina (F5)
+6. Procurar requisiÃ§Ã£o para `api/v9/users/@me` ou qualquer api/v9
+7. Nos **Request Headers**, copiar o valor de `authorization`
+8. Esse Ã© seu token!
 
-## ?? Funcionamento Técnico
+## ğŸ“Š Logs Esperados
 
-### Fluxo de Execução
-
-1. **Autenticação Discord**
-   - Injeta token no localStorage via Puppeteer
-   - Navega para canal específico
-
-2. **Captura de Tela**
-   - Screenshot via Browserless (headless Chrome)
-   - Extrai texto da página (DOM)
-
-3. **Extração de Dados**
-   - **Método 1:** Regex no texto do DOM (rápido)
-   - **Método 2:** OCR com OCR.space (fallback)
-   - Busca padrões: `size: 123.45` e `balance: 678.90`
-
-4. **Detecção de Mudanças**
-   - Compara com valores anteriores
-   - Trigger apenas se houver diferença
-
-5. **Envio de Alerta**
-   - POST para webhook n8n
-   - Payload JSON: `{timestamp, size, balance}`
-
-### Exemplo de Saída
+ApÃ³s deploy bem-sucedido, vocÃª verÃ¡:
 
 ```
-============================================================
-Discord Stage Monitor iniciado!
-Canal: 1435710395909410878
-Intervalo: 300 segundos
-============================================================
-[2025-12-21 15:45:00] Verificando carteira...
-Capturando tela do Discord...
-MUDANCA DETECTADA!
-  Size: 100.0 -> 150.5
-  Balance: 5000.0 -> 5250.75
-Enviado para n8n: Size=150.5, Balance=5250.75
-Aguardando 300 segundos...
+======================================================================
+ğŸ­ DISCORD STAGE VOICE MONITOR v8
+======================================================================
+ğŸ“ Server: 971218268574584852
+ğŸ¤ Stage Channel: 1435710395909410878 (Palco 'ClÃ¡ssica')
+â±ï¸  Intervalo: 300s (5.0 min)
+ğŸ”‘ Token: âœ… Configurado
+ğŸŒ n8n: âœ… Configurado
+======================================================================
+ğŸš€ Iniciando monitoramento...
+
+ğŸ”„ Ciclo #1
+ğŸ­ Capturando Stage Voice Channel...
+âœ… Screenshot capturado! (245.3 KB)
+ğŸ“¤ Enviando para n8n...
+âœ… Enviado com sucesso para n8n!
+ğŸ‰ Ciclo completo com sucesso!
 ```
 
-## ??? Tecnologias
+## ğŸ› Troubleshooting
 
-- **Python 3.11** - Linguagem principal
-- **Browserless** - Automação de navegador (Puppeteer/Chrome headless)
-- **Docker** - Containerização
-- **EasyPanel** - Plataforma de deploy
-- **n8n** - Workflow automation
-- **OCR.space** - Reconhecimento óptico de caracteres (fallback)
+### Screenshot mostra tela de login
+- âŒ Token invÃ¡lido ou expirado
+- âœ… Obter novo token
+- âœ… Verificar DISCORD_TOKEN no Environment
 
-## ?? Integrações Futuras
+### Timeout ao capturar
+- âŒ Stream offline ou carregando devagar
+- âœ… Verificar se stage estÃ¡ ativo
+- âœ… Aumentar CHECK_INTERVAL
 
-- [ ] Google Sheets - Armazenamento de histórico
-- [ ] Evolution API - Envio para WhatsApp
-- [ ] Grafana - Dashboard de métricas
-- [ ] Alertas de erro via Telegram
+### Erro ao enviar para n8n
+- âŒ N8N_WEBHOOK_URL incorreto
+- âœ… Verificar URL do webhook
+- âœ… Ativar workflow no n8n
 
-## ?? Segurança
+### Container nÃ£o inicia
+- âŒ Erro no Dockerfile ou dependÃªncias
+- âœ… Ver logs de build
+- âœ… Verificar requirements.txt
 
-- ?? **Nunca commite** o `DISCORD_TOKEN` no código
-- ? Use variáveis de ambiente para secrets
-- ? Token tem acesso apenas ao servidor específico
-- ? Screenshot não é armazenado, apenas processado
+## ğŸ“ Estrutura de Arquivos
 
-## ?? Troubleshooting
-
-### Erro: "Connection refused to Browserless"
-```bash
-# Verificar se Browserless está rodando
-docker ps | grep browserless
-
-# Se não estiver, iniciar:
-docker run -d -p 3000:3000 browserless/chrome:latest
+```
+.
+â”œâ”€â”€ monitor.py              # CÃ³digo principal (v8)
+â”œâ”€â”€ Dockerfile              # Container configuration
+â”œâ”€â”€ requirements.txt        # Python dependencies
+â”œâ”€â”€ .env.example           # Exemplo de variÃ¡veis
+â”œâ”€â”€ .gitignore             # Ignorar arquivos sensÃ­veis
+â””â”€â”€ README.md              # Este arquivo
 ```
 
-### Erro: "Size e Balance não encontrados"
-- Verificar se canal Discord está correto
-- Verificar se texto "size" e "balance" aparecem na tela
-- Habilitar OCR fallback (já configurado)
+## ğŸ”„ Fluxo de Funcionamento
 
-### Erro: "Falha ao enviar para n8n"
-- Verificar URL do webhook
-- Testar webhook manualmente: `curl -X POST [N8N_WEBHOOK_URL] -d '{}'`
+1. **Monitor Python** captura screenshot do stage a cada 5 min
+2. Converte para **base64**
+3. Envia via **POST** para webhook n8n
+4. **n8n** recebe e processa:
+   - Node: Visualizar Imagem
+   - Node: OCR (extrai texto)
+   - Node: Extract Values (pega Size/Balance)
+   - Node: Google Sheets (salva dados)
+   - Node: WhatsApp (envia alertas)
 
-## ?? Logs
+## ğŸ¯ PrÃ³ximos Passos
 
-Logs são exibidos em tempo real no EasyPanel:
-- **INFO:** Operações normais
-- **ERRO:** Falhas na captura/envio
-- **MUDANÇA DETECTADA:** Quando valores mudam
+ApÃ³s deploy funcionando:
 
-## ?? Contribuindo
+1. âœ… Verificar screenshot no n8n
+2. âœ… Adicionar node "Visualizar Imagem"
+3. âœ… Configurar OCR
+4. âœ… Extrair valores (Size, Balance)
+5. âœ… Integrar Google Sheets
+6. âœ… Configurar WhatsApp
 
-1. Fork o projeto
-2. Crie uma branch: `git checkout -b feature/nova-funcionalidade`
-3. Commit: `git commit -m 'Add: nova funcionalidade'`
-4. Push: `git push origin feature/nova-funcionalidade`
-5. Abra um Pull Request
+## ğŸ“ Notas Importantes
 
-## ?? Licença
+- âš ï¸ Token Discord **expira** - precisa renovar periodicamente
+- âš ï¸ Stage precisa estar **ativo** para capturar
+- âš ï¸ Stream demora ~10-20s para carregar
+- âš ï¸ Browserless precisa estar **rodando** no mesmo network
 
-MIT License - Use livremente!
+## ğŸ†˜ Suporte
 
-## ?? Autor
+Se encontrar problemas:
 
-**Fernando Mendes**
-- GitHub: [@fermendes7](https://github.com/fermendes7)
+1. Verificar logs do container
+2. Verificar environment variables
+3. Testar token manualmente
+4. Verificar se stage estÃ¡ ativo
+5. Consultar arquivos de documentaÃ§Ã£o na pasta
 
----
+## ğŸ“œ LicenÃ§a
 
-? **Se este projeto foi útil, deixe uma estrela no GitHub!**
+Uso pessoal - Projeto de automaÃ§Ã£o
+
+## âœ¨ VersÃ£o
+
+**v8** - Stage Voice Channel Optimized
+- Data: 2025-12-23
+- Otimizado para capturar tela compartilhada em Stage
