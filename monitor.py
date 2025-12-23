@@ -1,19 +1,23 @@
-﻿import requests
+﻿from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import requests
 import time
 import os
 from datetime import datetime
 import base64
-import json
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 SERVER_ID = os.getenv("SERVER_ID", "971218268574584852")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "1435710395909410878")
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
-BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "http://browserless:3000")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 
 class DiscordStageMonitor:
-    """Monitor v13 - Payload corrigido (sem waitFor)"""
+    """Monitor v14 - Selenium com Chrome REAL"""
     
     def __init__(self):
         if not DISCORD_TOKEN:
@@ -21,7 +25,7 @@ class DiscordStageMonitor:
             exit(1)
         
         print("\n" + "="*70)
-        print("🎭 DISCORD STAGE VOICE MONITOR v13 - PAYLOAD FIX")
+        print("🎭 DISCORD STAGE VOICE MONITOR v14 - SELENIUM")
         print("="*70)
         print(f"📍 Server: {SERVER_ID}")
         print(f"🎤 Stage Channel: {CHANNEL_ID}")
@@ -29,57 +33,99 @@ class DiscordStageMonitor:
         print(f"🔑 Token: {'✅ Configurado' if DISCORD_TOKEN else '❌ NÃO CONFIGURADO'}")
         print(f"🌐 n8n: {'✅ Configurado' if N8N_WEBHOOK_URL else '❌ NÃO CONFIGURADO'}")
         print("="*70)
+        
+        self.driver = None
+        self.authenticated = False
+    
+    def setup_driver(self):
+        """Configura Chrome com Selenium"""
+        try:
+            print("\n🔧 Configurando Chrome...")
+            
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+            
+            # Inicializar driver
+            self.driver = webdriver.Chrome(options=chrome_options)
+            
+            print("✅ Chrome configurado com sucesso!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erro ao configurar Chrome: {e}")
+            return False
+    
+    def authenticate(self):
+        """Faz login no Discord usando token"""
+        try:
+            print("\n🔐 Autenticando no Discord...")
+            
+            # Ir para Discord
+            self.driver.get("https://discord.com/app")
+            time.sleep(3)
+            
+            # Injetar token via JavaScript
+            script = f'''
+            function login(token) {{
+                setInterval(() => {{
+                    document.body.appendChild(document.createElement('iframe')).contentWindow.localStorage.token = `"${{token}}"`;
+                }}, 50);
+                setTimeout(() => {{
+                    location.reload();
+                }}, 2500);
+            }}
+            login("{DISCORD_TOKEN}");
+            '''
+            
+            self.driver.execute_script(script)
+            
+            print("⏳ Aguardando autenticação...")
+            time.sleep(10)
+            
+            # Verificar se autenticou
+            current_url = self.driver.current_url
+            if "login" not in current_url.lower():
+                print("✅ Autenticação bem-sucedida!")
+                self.authenticated = True
+                return True
+            else:
+                print("⚠️ Ainda na tela de login - token pode estar inválido")
+                self.authenticated = False
+                return False
+                
+        except Exception as e:
+            print(f"❌ Erro na autenticação: {e}")
+            self.authenticated = False
+            return False
     
     def take_screenshot(self):
-        """Captura screenshot com payload válido"""
+        """Captura screenshot do Stage Channel"""
         try:
             stage_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
             
-            print(f"\n🎭 Capturando Stage Voice Channel...")
+            print(f"\n🎭 Navegando para Stage Voice Channel...")
             print(f"🔗 URL: {stage_url}")
             
-            endpoint = f"{BROWSERLESS_URL}/screenshot"
+            self.driver.get(stage_url)
             
-            # Payload CORRETO (sem waitFor, usando waitForTimeout dentro de gotoOptions)
-            payload = {
-                "url": stage_url,
-                "options": {
-                    "type": "png",
-                    "fullPage": False
-                },
-                "gotoOptions": {
-                    "waitUntil": "networkidle2",
-                    "timeout": 60000
-                },
-                "waitForTimeout": 10000
-            }
+            print("⏳ Aguardando página carregar...")
+            time.sleep(15)
             
-            headers = {
-                "Content-Type": "application/json"
-            }
+            # Tirar screenshot
+            print("📸 Capturando screenshot...")
+            screenshot_png = self.driver.get_screenshot_as_png()
             
-            print(f"📤 Enviando requisição para Browserless...")
+            print(f"✅ Screenshot capturado! ({len(screenshot_png)} bytes = {len(screenshot_png)/1024:.1f} KB)")
             
-            response = requests.post(
-                endpoint,
-                json=payload,
-                headers=headers,
-                timeout=90
-            )
+            return screenshot_png
             
-            print(f"📊 Status Browserless: {response.status_code}")
-            
-            if response.status_code == 200:
-                print(f"✅ Screenshot capturado! ({len(response.content)} bytes = {len(response.content)/1024:.1f} KB)")
-                return response.content
-            else:
-                print(f"❌ Browserless retornou status {response.status_code}")
-                if response.text:
-                    print(f"📄 Resposta: {response.text[:500]}")
-                return None
-                
         except Exception as e:
-            print(f"❌ Erro: {e}")
+            print(f"❌ Erro ao capturar screenshot: {e}")
             return None
     
     def send_to_n8n(self, screenshot_data):
@@ -102,7 +148,8 @@ class DiscordStageMonitor:
                 "screenshot": screenshot_b64,
                 "screenshot_size": len(screenshot_data),
                 "format": "png",
-                "version": "v13_payload_fix"
+                "version": "v14_selenium",
+                "authenticated": self.authenticated
             }
             
             headers = {
@@ -131,46 +178,64 @@ class DiscordStageMonitor:
     
     def run(self):
         """Loop principal do monitor"""
-        print(f"\n🚀 Iniciando monitoramento v13...\n")
+        print(f"\n🚀 Iniciando monitoramento v14 com Selenium...\n")
+        
+        # Setup inicial
+        if not self.setup_driver():
+            print("❌ Falha ao configurar Chrome!")
+            return
+        
+        # Autenticar uma vez
+        if not self.authenticate():
+            print("⚠️ Autenticação falhou, mas vou continuar tentando capturar...")
         
         cycle = 0
         
-        while True:
-            try:
-                cycle += 1
-                print(f"\n{'='*70}")
-                print(f"🔄 Ciclo #{cycle}")
-                print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                print(f"{'='*70}")
-                
-                # Capturar screenshot
-                screenshot = self.take_screenshot()
-                
-                if screenshot:
-                    # Enviar para n8n
-                    success = self.send_to_n8n(screenshot)
+        try:
+            while True:
+                try:
+                    cycle += 1
+                    print(f"\n{'='*70}")
+                    print(f"🔄 Ciclo #{cycle}")
+                    print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"🔐 Autenticado: {'✅ SIM' if self.authenticated else '❌ NÃO'}")
+                    print(f"{'='*70}")
                     
-                    if success:
-                        print(f"\n🎉 Ciclo completo com sucesso!")
+                    # Capturar screenshot
+                    screenshot = self.take_screenshot()
+                    
+                    if screenshot:
+                        # Enviar para n8n
+                        success = self.send_to_n8n(screenshot)
+                        
+                        if success:
+                            if self.authenticated:
+                                print(f"\n🎉 Ciclo completo com sucesso! (AUTENTICADO ✅)")
+                            else:
+                                print(f"\n⚠️ Ciclo completo mas NÃO AUTENTICADO!")
+                        else:
+                            print(f"\n⚠️ Ciclo completo mas com problemas no envio")
                     else:
-                        print(f"\n⚠️ Ciclo completo mas com problemas no envio")
-                else:
-                    print(f"\n❌ Falha na captura do screenshot")
-                
-                # Aguardar próximo ciclo
-                print(f"\n{'='*70}")
-                print(f"⏳ Aguardando {CHECK_INTERVAL}s até próxima verificação...")
-                print(f"{'='*70}\n")
-                
-                time.sleep(CHECK_INTERVAL)
-                
-            except KeyboardInterrupt:
-                print(f"\n\n⚠️ Monitor interrompido pelo usuário")
-                break
-            except Exception as e:
-                print(f"\n❌ Erro no ciclo: {e}")
-                print(f"🔄 Tentando novamente em {CHECK_INTERVAL}s...")
-                time.sleep(CHECK_INTERVAL)
+                        print(f"\n❌ Falha na captura do screenshot")
+                    
+                    # Aguardar próximo ciclo
+                    print(f"\n{'='*70}")
+                    print(f"⏳ Aguardando {CHECK_INTERVAL}s até próxima verificação...")
+                    print(f"{'='*70}\n")
+                    
+                    time.sleep(CHECK_INTERVAL)
+                    
+                except Exception as e:
+                    print(f"\n❌ Erro no ciclo: {e}")
+                    print(f"🔄 Tentando novamente em {CHECK_INTERVAL}s...")
+                    time.sleep(CHECK_INTERVAL)
+                    
+        except KeyboardInterrupt:
+            print(f"\n\n⚠️ Monitor interrompido pelo usuário")
+        finally:
+            if self.driver:
+                print("🔒 Fechando Chrome...")
+                self.driver.quit()
 
 if __name__ == "__main__":
     monitor = DiscordStageMonitor()
