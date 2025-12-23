@@ -3,305 +3,295 @@ import time
 import os
 from datetime import datetime
 import base64
+import json
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 SERVER_ID = os.getenv("SERVER_ID", "971218268574584852")
-CHANNEL_ID = os.getenv("CHANNEL_ID", "1435710395909410878")  # Palco "Clássica"
+CHANNEL_ID = os.getenv("CHANNEL_ID", "1435710395909410878")
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "http://browserless:3000")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 
 class DiscordStageMonitor:
-    """Monitor para capturar tela compartilhada em Stage Voice Channel"""
+    """Monitor v11 - Usando /content do Browserless (aceita HTML customizado)"""
     
     def __init__(self):
         if not DISCORD_TOKEN:
-            print("⚠️ AVISO: DISCORD_TOKEN não configurado!")
-        print(f"🎤 Palco de Voz: Canal {CHANNEL_ID}")
+            print("❌ ERRO: DISCORD_TOKEN não configurado!")
+            exit(1)
         
-    def take_screenshot_stage(self):
-        """Captura screenshot da tela compartilhada no palco de voz"""
-        try:
-            stage_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
-            
-            print("\n🎭 Capturando Stage Voice Channel...")
-            print(f"📍 URL: {stage_url}")
-            print(f"🔑 Token: {'✅ OK' if DISCORD_TOKEN else '❌ NÃO CONFIGURADO'}")
-            
-            endpoint = f"{BROWSERLESS_URL}/screenshot"
-            
-            # Payload otimizado para Stage Channel com stream
-            payload = {
-                "url": stage_url,
-                "options": {
-                    "type": "png",
-                    "fullPage": False,
-                    "encoding": "binary"
-                },
-                "gotoOptions": {
-                    "waitUntil": "networkidle0",  # Aguarda tudo carregar incluindo stream
-                    "timeout": 90000  # 90 segundos para carregar stream
-                }
-            }
-            
-            # Adicionar autenticação via cookies
-            if DISCORD_TOKEN:
-                payload["cookies"] = [
-                    {
-                        "name": "token",
-                        "value": DISCORD_TOKEN,
-                        "domain": ".discord.com",
-                        "path": "/",
-                        "httpOnly": True,
-                        "secure": True
-                    }
-                ]
-                print("🍪 Cookies de autenticação: Adicionados")
-            else:
-                print("⚠️ Sem autenticação - pode falhar!")
-            
-            # Aguardar elementos do stage carregarem (tempo extra para stream)
-            payload["waitForTimeout"] = 10000  # 10 segundos extras após load
-            
-            print("⏳ Enviando requisição para Browserless...")
-            print("   (Aguardando stream carregar - pode demorar 10-20s)")
-            
-            response = requests.post(endpoint, json=payload, timeout=120)
-            
-            print(f"📊 Status Browserless: {response.status_code}")
-            
-            if response.status_code == 200:
-                screenshot_bytes = response.content
-                screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-                
-                size_kb = len(screenshot_bytes) / 1024
-                print(f"✅ Screenshot capturado! ({size_kb:.1f} KB)")
-                
-                return {
-                    'screenshot_base64': screenshot_b64,
-                    'screenshot_bytes': screenshot_bytes,
-                    'timestamp': datetime.now().isoformat(),
-                    'url': stage_url,
-                    'channel_type': 'stage_voice',
-                    'authenticated': bool(DISCORD_TOKEN),
-                    'size_kb': size_kb
-                }
-            else:
-                error_text = response.text[:500] if response.text else "Sem detalhes"
-                print(f"❌ Erro Browserless: {error_text}")
-                return None
-            
-        except requests.exceptions.Timeout:
-            print("⏱️ Timeout! Stream demorou muito para carregar.")
-            print("   Possíveis causas:")
-            print("   - Stream offline")
-            print("   - Autenticação inválida")
-            print("   - Browserless sobrecarregado")
-            return None
-        except Exception as e:
-            print(f"❌ Erro ao capturar: {str(e)}")
-            return None
-    
-    def take_screenshot_with_script(self):
-        """Método alternativo usando JavaScript para capturar área específica"""
-        try:
-            stage_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
-            
-            print("\n🎭 Método Alternativo: Captura com JavaScript")
-            print(f"📍 URL: {stage_url}")
-            
-            endpoint = f"{BROWSERLESS_URL}/screenshot"
-            
-            # Script para aguardar e capturar área do vídeo
-            wait_script = """
-            new Promise((resolve) => {
-                // Aguardar 8 segundos para stream carregar
-                setTimeout(() => {
-                    console.log('Stream carregado, capturando...');
-                    resolve();
-                }, 8000);
-            });
-            """
-            
-            payload = {
-                "url": stage_url,
-                "options": {
-                    "type": "png",
-                    "fullPage": False
-                },
-                "gotoOptions": {
-                    "waitUntil": "networkidle2",
-                    "timeout": 90000
-                },
-                "waitForFunction": wait_script
-            }
-            
-            if DISCORD_TOKEN:
-                payload["cookies"] = [
-                    {
-                        "name": "token",
-                        "value": DISCORD_TOKEN,
-                        "domain": ".discord.com",
-                        "path": "/",
-                        "httpOnly": True,
-                        "secure": True
-                    }
-                ]
-            
-            response = requests.post(endpoint, json=payload, timeout=120)
-            
-            if response.status_code == 200:
-                screenshot_bytes = response.content
-                screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-                
-                print(f"✅ Screenshot alternativo capturado! ({len(screenshot_bytes)/1024:.1f} KB)")
-                
-                return {
-                    'screenshot_base64': screenshot_b64,
-                    'screenshot_bytes': screenshot_bytes,
-                    'timestamp': datetime.now().isoformat(),
-                    'url': stage_url,
-                    'channel_type': 'stage_voice',
-                    'authenticated': bool(DISCORD_TOKEN),
-                    'method': 'javascript'
-                }
-            else:
-                print(f"❌ Método alternativo falhou: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Erro método alternativo: {str(e)}")
-            return None
-    
-    def take_screenshot(self):
-        """Tenta capturar screenshot do stage (com fallback)"""
-        # Método principal
-        result = self.take_screenshot_stage()
-        
-        if result:
-            return result
-        
-        # Fallback com JavaScript
-        print("\n🔄 Tentando método alternativo...")
-        result = self.take_screenshot_with_script()
-        
-        if result:
-            return result
-        
-        print("❌ Todos os métodos falharam")
-        return None
-    
-    def send_to_n8n(self, data):
-        """Envia screenshot para n8n processar"""
-        if not N8N_WEBHOOK_URL:
-            print("⚠️ N8N_WEBHOOK_URL não configurado")
-            return False
-            
-        try:
-            print("\n📤 Enviando para n8n...")
-            
-            payload = {
-                'timestamp': data['timestamp'],
-                'screenshot_base64': data['screenshot_base64'],
-                'discord_url': data['url'],
-                'server_id': SERVER_ID,
-                'channel_id': CHANNEL_ID,
-                'channel_type': data.get('channel_type', 'stage_voice'),
-                'authenticated': data.get('authenticated', False),
-                'size_kb': data.get('size_kb', 0)
-            }
-            
-            response = requests.post(
-                N8N_WEBHOOK_URL, 
-                json=payload, 
-                timeout=30
-            )
-            
-            print(f"📊 Status n8n: {response.status_code}")
-            
-            if response.status_code == 200:
-                print("✅ Enviado com sucesso para n8n!")
-                return True
-            else:
-                print(f"❌ Erro n8n: {response.text[:200]}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Erro ao enviar: {str(e)}")
-            return False
-    
-    def check(self):
-        """Ciclo de captura e envio"""
         print("\n" + "="*70)
-        print(f"🎬 [STAGE CHECK] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("="*70)
-        
-        result = self.take_screenshot()
-        
-        if not result:
-            print("💥 Falha ao capturar screenshot do stage")
-            return False
-        
-        success = self.send_to_n8n(result)
-        
-        if success:
-            print("\n🎉 Ciclo completo com sucesso!")
-            print("="*70)
-            return True
-        else:
-            print("\n💥 Falha ao enviar para n8n")
-            print("="*70)
-            return False
-    
-    def run(self):
-        """Loop principal de monitoramento"""
-        print("\n" + "="*70)
-        print("🎭 DISCORD STAGE VOICE MONITOR v8")
+        print("🎭 DISCORD STAGE VOICE MONITOR v11 - MÉTODO CONTENT")
         print("="*70)
         print(f"📍 Server: {SERVER_ID}")
         print(f"🎤 Stage Channel: {CHANNEL_ID} (Palco 'Clássica')")
         print(f"⏱️  Intervalo: {CHECK_INTERVAL}s ({CHECK_INTERVAL/60:.1f} min)")
         print(f"🔑 Token: {'✅ Configurado' if DISCORD_TOKEN else '❌ NÃO CONFIGURADO'}")
         print(f"🌐 n8n: {'✅ Configurado' if N8N_WEBHOOK_URL else '❌ NÃO CONFIGURADO'}")
-        print(f"🖥️  Browserless: {BROWSERLESS_URL}")
         print("="*70)
+    
+    def take_screenshot_with_puppeteer_script(self):
+        """Usa endpoint /function com script Puppeteer completo"""
+        try:
+            stage_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
+            
+            print(f"\n🎭 Capturando via Puppeteer Script...")
+            print(f"🔗 URL: {stage_url}")
+            
+            endpoint = f"{BROWSERLESS_URL}/function"
+            
+            # Script Puppeteer que vai FORÇAR autenticação
+            puppeteer_script = f"""
+module.exports = async ({{ page, context }}) => {{
+    try {{
+        console.log('🚀 Iniciando captura autenticada...');
         
-        if not DISCORD_TOKEN:
-            print("\n⚠️⚠️⚠️ ATENÇÃO ⚠️⚠️⚠️")
-            print("DISCORD_TOKEN não configurado!")
-            print("Sem token, só vai capturar tela de login.")
-            print("Configure DISCORD_TOKEN no EasyPanel.")
-            print("="*70 + "\n")
+        // 1. Definir User-Agent realista
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
-        if not N8N_WEBHOOK_URL:
-            print("\n⚠️ N8N_WEBHOOK_URL não configurado!")
-            print("Screenshots não serão enviados.")
-            print("="*70 + "\n")
+        // 2. Definir viewport
+        await page.setViewport({{ width: 1920, height: 1080 }});
         
-        print("🚀 Iniciando monitoramento...\n")
+        // 3. Ir para Discord (qualquer página)
+        console.log('📍 Navegando para Discord...');
+        await page.goto('https://discord.com/app', {{
+            waitUntil: 'domcontentloaded',
+            timeout: 60000
+        }});
+        
+        // 4. FORÇAR token via evaluate (executa no contexto do browser)
+        console.log('🔑 Injetando token...');
+        await page.evaluate((token) => {{
+            // Limpar storage
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            // Definir token (formato exato do Discord)
+            localStorage.setItem('token', `"${{token}}"`);
+            
+            // Também no sessionStorage
+            sessionStorage.setItem('token', `"${{token}}"`);
+            
+            console.log('Token definido:', localStorage.getItem('token'));
+        }}, '{DISCORD_TOKEN}');
+        
+        // 5. Aguardar um pouco
+        await page.waitForTimeout(2000);
+        
+        // 6. Navegar para o Stage Channel
+        console.log('🎯 Navegando para Stage Channel...');
+        await page.goto('{stage_url}', {{
+            waitUntil: 'networkidle0',
+            timeout: 90000
+        }});
+        
+        // 7. Aguardar elementos carregarem
+        console.log('⏳ Aguardando elementos...');
+        await page.waitForTimeout(15000);
+        
+        // 8. Verificar se está logado (procurar elementos da interface)
+        const isLoggedIn = await page.evaluate(() => {{
+            // Se tiver botão "Log In", NÃO está logado
+            const loginButton = document.querySelector('button:contains("Log In")');
+            if (loginButton) return false;
+            
+            // Se tiver elementos da interface do Discord, está logado
+            const chatArea = document.querySelector('[class*="chat"]');
+            const sidebar = document.querySelector('[class*="sidebar"]');
+            
+            return !!(chatArea || sidebar);
+        }});
+        
+        console.log('🔍 Status login:', isLoggedIn ? 'LOGADO ✅' : 'NÃO LOGADO ❌');
+        
+        // 9. Tirar screenshot
+        console.log('📸 Capturando screenshot...');
+        const screenshot = await page.screenshot({{
+            type: 'png',
+            fullPage: false
+        }});
+        
+        console.log('✅ Screenshot capturado!');
+        
+        return {{
+            data: {{
+                screenshot: screenshot.toString('base64'),
+                logged_in: isLoggedIn,
+                url: page.url(),
+                timestamp: new Date().toISOString()
+            }},
+            type: 'application/json'
+        }};
+        
+    }} catch (error) {{
+        console.error('❌ Erro:', error.message);
+        return {{
+            data: {{
+                error: error.message,
+                screenshot: null
+            }},
+            type: 'application/json'
+        }};
+    }}
+}};
+"""
+            
+            payload = {
+                "code": puppeteer_script,
+                "context": {}
+            }
+            
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            print(f"📤 Executando script Puppeteer...")
+            
+            response = requests.post(
+                endpoint,
+                json=payload,
+                headers=headers,
+                timeout=180
+            )
+            
+            print(f"📊 Status Browserless: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    
+                    if 'data' in result and 'screenshot' in result['data']:
+                        screenshot_b64 = result['data']['screenshot']
+                        logged_in = result['data'].get('logged_in', False)
+                        
+                        print(f"📊 Status Login: {'✅ LOGADO' if logged_in else '❌ NÃO LOGADO'}")
+                        
+                        if screenshot_b64:
+                            screenshot_data = base64.b64decode(screenshot_b64)
+                            print(f"✅ Screenshot capturado! ({len(screenshot_data)} bytes = {len(screenshot_data)/1024:.1f} KB)")
+                            
+                            return screenshot_data, logged_in
+                        else:
+                            print(f"❌ Screenshot vazio na resposta")
+                            return None, False
+                    else:
+                        print(f"❌ Formato de resposta inesperado")
+                        print(f"Resposta: {str(result)[:200]}")
+                        return None, False
+                        
+                except Exception as e:
+                    print(f"❌ Erro ao processar resposta JSON: {e}")
+                    return None, False
+            else:
+                print(f"❌ Browserless retornou status {response.status_code}")
+                print(f"Resposta: {response.text[:200]}")
+                return None, False
+                
+        except Exception as e:
+            print(f"❌ Erro geral: {e}")
+            return None, False
+    
+    def send_to_n8n(self, screenshot_data, logged_in=False):
+        """Envia screenshot para n8n webhook"""
+        try:
+            if not N8N_WEBHOOK_URL:
+                print("⚠️ N8N_WEBHOOK_URL não configurado, pulando envio...")
+                return True
+            
+            print(f"\n📤 Enviando para n8n...")
+            
+            # Converter para base64
+            screenshot_b64 = base64.b64encode(screenshot_data).decode('utf-8')
+            
+            # Payload para n8n
+            payload = {
+                "timestamp": datetime.now().isoformat(),
+                "server_id": SERVER_ID,
+                "channel_id": CHANNEL_ID,
+                "screenshot": screenshot_b64,
+                "screenshot_size": len(screenshot_data),
+                "format": "png",
+                "version": "v11_puppeteer",
+                "logged_in": logged_in,
+                "warning": "NOT_LOGGED_IN" if not logged_in else None
+            }
+            
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(
+                N8N_WEBHOOK_URL,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
+            print(f"📊 Status n8n: {response.status_code}")
+            
+            if response.status_code == 200:
+                print(f"✅ Enviado com sucesso para n8n!")
+                
+                if not logged_in:
+                    print(f"⚠️ AVISO: Screenshot enviado MAS não está logado!")
+                    print(f"⚠️ Você precisa obter um TOKEN válido e atualizar!")
+                
+                return True
+            else:
+                print(f"⚠️ n8n retornou status {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Erro ao enviar para n8n: {e}")
+            return False
+    
+    def run(self):
+        """Loop principal do monitor"""
+        print(f"\n🚀 Iniciando monitoramento v11...\n")
         
         cycle = 0
         
         while True:
             try:
                 cycle += 1
-                print(f"\n🔄 Ciclo #{cycle}")
+                print(f"\n{'='*70}")
+                print(f"🔄 Ciclo #{cycle}")
+                print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"{'='*70}")
                 
-                self.check()
+                # Capturar screenshot
+                result = self.take_screenshot_with_puppeteer_script()
                 
-                print(f"\n💤 Aguardando {CHECK_INTERVAL}s até próxima verificação...")
-                print(f"⏰ Próxima captura: {datetime.now().strftime('%H:%M:%S')} + {CHECK_INTERVAL}s\n")
+                if result and result[0]:
+                    screenshot_data, logged_in = result
+                    
+                    # Enviar para n8n
+                    success = self.send_to_n8n(screenshot_data, logged_in)
+                    
+                    if success:
+                        if logged_in:
+                            print(f"\n🎉 Ciclo completo com sucesso! (LOGADO ✅)")
+                        else:
+                            print(f"\n⚠️ Ciclo completo mas NÃO LOGADO! (Token inválido)")
+                    else:
+                        print(f"\n⚠️ Ciclo completo mas com problemas no envio")
+                else:
+                    print(f"\n❌ Falha na captura do screenshot")
+                
+                # Aguardar próximo ciclo
+                print(f"\n{'='*70}")
+                print(f"⏳ Aguardando {CHECK_INTERVAL}s até próxima verificação...")
+                print(f"{'='*70}\n")
                 
                 time.sleep(CHECK_INTERVAL)
                 
             except KeyboardInterrupt:
-                print("\n\n🛑 Monitor encerrado pelo usuário")
-                print("="*70)
+                print(f"\n\n⚠️ Monitor interrompido pelo usuário")
                 break
             except Exception as e:
-                print(f"\n💥 ERRO CRÍTICO: {str(e)}")
-                print("⏳ Aguardando 60s antes de tentar novamente...\n")
-                time.sleep(60)
+                print(f"\n❌ Erro no ciclo: {e}")
+                print(f"🔄 Tentando novamente em {CHECK_INTERVAL}s...")
+                time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
     monitor = DiscordStageMonitor()
