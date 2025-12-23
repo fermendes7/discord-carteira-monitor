@@ -13,7 +13,7 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "http://browserless:3000")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 
 class DiscordStageMonitor:
-    """Monitor v12 - Corrigindo erro 400 do Browserless"""
+    """Monitor v13 - Payload corrigido (sem waitFor)"""
     
     def __init__(self):
         if not DISCORD_TOKEN:
@@ -21,7 +21,7 @@ class DiscordStageMonitor:
             exit(1)
         
         print("\n" + "="*70)
-        print("🎭 DISCORD STAGE VOICE MONITOR v12 - BROWSERLESS FIX")
+        print("🎭 DISCORD STAGE VOICE MONITOR v13 - PAYLOAD FIX")
         print("="*70)
         print(f"📍 Server: {SERVER_ID}")
         print(f"🎤 Stage Channel: {CHANNEL_ID}")
@@ -30,18 +30,17 @@ class DiscordStageMonitor:
         print(f"🌐 n8n: {'✅ Configurado' if N8N_WEBHOOK_URL else '❌ NÃO CONFIGURADO'}")
         print("="*70)
     
-    def take_screenshot_method_simple(self):
-        """Método simplificado usando apenas screenshot endpoint"""
+    def take_screenshot(self):
+        """Captura screenshot com payload válido"""
         try:
             stage_url = f"https://discord.com/channels/{SERVER_ID}/{CHANNEL_ID}"
             
             print(f"\n🎭 Capturando Stage Voice Channel...")
             print(f"🔗 URL: {stage_url}")
-            print(f"🔑 Token: {DISCORD_TOKEN[:20]}..." if DISCORD_TOKEN else "❌ Sem token")
             
             endpoint = f"{BROWSERLESS_URL}/screenshot"
             
-            # Payload simplificado
+            # Payload CORRETO (sem waitFor, usando waitForTimeout dentro de gotoOptions)
             payload = {
                 "url": stage_url,
                 "options": {
@@ -52,7 +51,7 @@ class DiscordStageMonitor:
                     "waitUntil": "networkidle2",
                     "timeout": 60000
                 },
-                "waitFor": 10000
+                "waitForTimeout": 10000
             }
             
             headers = {
@@ -75,7 +74,8 @@ class DiscordStageMonitor:
                 return response.content
             else:
                 print(f"❌ Browserless retornou status {response.status_code}")
-                print(f"📄 Resposta: {response.text[:500]}")
+                if response.text:
+                    print(f"📄 Resposta: {response.text[:500]}")
                 return None
                 
         except Exception as e:
@@ -102,8 +102,7 @@ class DiscordStageMonitor:
                 "screenshot": screenshot_b64,
                 "screenshot_size": len(screenshot_data),
                 "format": "png",
-                "version": "v12_simple",
-                "note": "Using simple screenshot method - no login verification"
+                "version": "v13_payload_fix"
             }
             
             headers = {
@@ -132,7 +131,7 @@ class DiscordStageMonitor:
     
     def run(self):
         """Loop principal do monitor"""
-        print(f"\n🚀 Iniciando monitoramento v12...\n")
+        print(f"\n🚀 Iniciando monitoramento v13...\n")
         
         cycle = 0
         
@@ -145,7 +144,7 @@ class DiscordStageMonitor:
                 print(f"{'='*70}")
                 
                 # Capturar screenshot
-                screenshot = self.take_screenshot_method_simple()
+                screenshot = self.take_screenshot()
                 
                 if screenshot:
                     # Enviar para n8n
